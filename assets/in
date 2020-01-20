@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# check given 1st parameter
+if [ -z "$1" ]; then
+    >&2 echo "missing param get dir"
+    exit 1
+elif [ ! -d "$1" ] || [ ! -w "$1" ]; then
+    >&2 echo "$1 not a dir or not writable"
+    exit 1
+fi
+
+>&2 echo $0
+source /opt/resource/common
+source /opt/resource/debug
+
+json=$(cat)
+getDir="$1"
+
+# When the put succeeds, the produced version of the resource will be immediately fetched via an implicit get step.
+# in that case the given json does not have 'params' so we check for that
+result="$(jq --raw-output --arg fakeDefault "$fakeDefault" \
+            ". | if has(\"params\") then .params else \"$fakeDefault\" end" <(echo "$json"))"
+if [ "$result" = "$fakeDefault" ]; then
+    echo "{ \"version\": { \"op\": \"get\" },  \"metadata\": [] }"
+    exit 0
+fi
+
+# extract resource's json '.source.<param_name>'
+credhub_client="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_client\") then .credhub_client else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_client}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_client' or error on jq extracting it"
+fi
+
+credhub_secret="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_secret\") then .credhub_secret else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_secret}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_secret' or error on jq extracting it"
+fi
+
+credhub_server="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_server\") then .credhub_server else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_server}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_server' or error on jq extracting it"
+fi
+
+credhub_ca_cert="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_ca_cert\") then .credhub_ca_cert else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_ca_cert}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_ca_cert' or error on jq extracting it"
+fi
+
+prefix="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"prefix\") then .prefix else \"\$default\" end" <(echo "$json"))"
+if [ "${prefix}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.prefix' or error on jq extracting it"
+fi
+
+# extract get's json .params.<PARAM_NAME>
+PREFIX="$(jq --raw-output --arg default "${prefix}" \
+            ".params | if has(\"PREFIX\") then .PREFIX else \"\$default\" end" <(echo "$json"))"
+
+KEY="$(jq --raw-output --arg default "$fakeDefault" \
+            ".params | if has(\"KEY\") then .KEY else \"\$default\" end" <(echo "$json"))"
+if [ "${KEY}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional params param 'params.KEY' or error on jq extracting it"
+fi
+
+SKIP_MISSING="$(jq --raw-output --arg default "false" \
+            ".params | if has(\"SKIP_MISSING\") then .SKIP_MISSING else \"\$default\" end" <(echo "$json"))"
+
+# check if an error occured
+if [ -z "$errorMessage" ]; then
+    >&2 echo "successfully parsed all resource's source.<param>s and put's params.<param>s"
+else
+    >&2 echo -e "$errorMessage"
+    exit 2
+fi
+
+# credhub login
+echo "${credhub_ca_cert}" > ./cert.pem
+>&2 credhub login --server "${credhub_server}" --ca-cert ./cert.pem --client-name "${credhub_client}" --client-secret "${credhub_secret}"
+
+# check if an error occured
+if [ $? -ne 0 ]; then
+    >&2 echo "error on: credhub get -n '${PREFIX}/${KEY}' -q"
+    exit 3
+fi
+
+# credhub get
+PREFIX=${PREFIX%/} # strip trailing slash
+set +e
+value="$(credhub get -n "${PREFIX}/${KEY}" -q)"
+result=$?
+set -e
+if [ $result -ne 0 ] && [ "${SKIP_MISSING}" != "true" ]; then
+   >&2 echo "missing mandatory key: "${PREFIX}/${KEY}" -q"
+    exit 5
+elif [ $result -ne 0 ] && [ "${SKIP_MISSING}" = "true" ]; then
+    # skip missing key by just not appending it to $getDir/credhub-key-values.yml
+    : # no-op
+else
+    # convert json to yaml
+    value="$(echo '${value}' | yq r -)"
+    if [ $? -ne 0 ]; then
+        >&2 echo "error on converting gotten value from json to yaml"
+        exit 6
+    fi
+    # append gotten value to ouput dir file as json
+    echo "$KEY:\n$value" | sed 's/\\n/\n  /g' >> $getDir/credhub-key-values.yml
+fi
+
+# respond to concourse
+# version respond is same version as we got from STDIN
+# echo "{ \"version\": $(jq -r --compact-output .version <(echo "${json}")),  \"metadata\": [{\"PREFIX\": \"${PREFIX}\"}, {\"KEY\": \"${KEY}\"}] }"
+echo "{ \"version\": { \"credhub\": \"get $(date)\" },  \"metadata\": [{\"PREFIX\": \"${PREFIX}\"}, {\"KEY\": \"${KEY}\"}] }"
+

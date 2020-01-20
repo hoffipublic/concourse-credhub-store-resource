@@ -1,0 +1,18 @@
+#!/bin/bash
+
+>&2 echo $0
+source /opt/resource/common
+source /opt/resource/debug
+
+json=$(cat) # read json from stdin and assign to $json variable
+
+# this resource is intended just to store key/values, so it is de facto a no op
+# # as implementation we return the former version timestamp (if any) plus a new timestamp
+# jq --arg DATETIMEINMILLIS $(($(date +%s%N)/1000000 )) --compact-output \
+#     '[.version] | . + [{"timestamp": "$DATETIMEINMILLIS"}]' <(echo "${json}")
+
+# echo "[{ \"dummy\": \"$(($(date +%s%N)/1000000 ))\" }]"
+echo '[{ "dummy": "static" }]'
+
+# if you want a resource that will create a new version when a credential in credhub changes
+# then use https://github.com/cloudfoundry-community/credhub-resource

@@ -1,0 +1,96 @@
+#!/bin/bash
+
+# check given 1st parameter
+if [ -z "$1" ]; then
+    >&2 echo "missing param put dir"
+    exit 1
+elif [ ! -d "$1" ] || [ ! -w "$1" ]; then
+    >&2 echo "$1 not a dir or not writable"
+    exit 1
+fi
+
+>&2 echo $0
+source /opt/resource/common
+source /opt/resource/debug
+
+json=$(cat)
+putDir="$1"
+
+# extract resource's json '.source.<param_name>'
+credhub_client="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_client\") then .credhub_client else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_client}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_client' or error on jq extracting it"
+fi
+
+credhub_secret="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_secret\") then .credhub_secret else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_secret}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_secret' or error on jq extracting it"
+fi
+
+credhub_server="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_server\") then .credhub_server else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_server}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_server' or error on jq extracting it"
+fi
+
+credhub_ca_cert="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"credhub_ca_cert\") then .credhub_ca_cert else \"\$default\" end" <(echo "$json"))"
+if [ "${credhub_ca_cert}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.credhub_ca_cert' or error on jq extracting it"
+fi
+
+prefix="$(jq --raw-output --arg default "$fakeDefault" \
+            ".source | if has(\"prefix\") then .prefix else \"\$default\" end" <(echo "$json"))"
+if [ "${prefix}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional source param 'source.prefix' or error on jq extracting it"
+fi
+
+# extract get's json .params.<PARAM_NAME>
+PREFIX="$(jq --raw-output --arg default "${prefix}" \
+            ".params | if has(\"PREFIX\") then .PREFIX else \"\$default\" end" <(echo "$json"))"
+
+KEY="$(jq --raw-output --arg default "$fakeDefault" \
+            ".params | if has(\"KEY\") then .KEY else \"\${default}\" end" <(echo "$json"))"
+if [ "${KEY}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional params param 'params.KEY' or error on jq extracting it"
+fi
+
+VALUE="$(jq --raw-output --arg default "$fakeDefault" \
+".params | if has(\"VALUE\") then .VALUE else \"\$default\" end" <(echo "$json"))"
+if [ "${VALUE}" = "$fakeDefault" ]; then
+    errorMessage+="\nmissing non-optional params param 'params.VALUE' or error on jq extracting it"
+fi
+
+# check if value is valid yaml by converting to json (that's how we store it in credhub)
+VALUE=$(echo "${VALUE}" | spruce json)
+if [ $? -ne 0 ]; then
+    errorMessage+="\nparam 'VALUE' is not valid yaml and so cannot be converted to json"
+fi
+
+# check if an error occured
+if [ -z "$errorMessage" ]; then
+    >&2 echo "successfully parsed all resource's source.<param>s and put's params.<param>s"
+else
+    >&2 echo -e "$errorMessage"
+    exit 2
+fi
+
+# credhub login
+echo "${credhub_ca_cert}" > ./cert.pem
+>&2 credhub login --server "${credhub_server}" --ca-cert ./cert.pem --client-name "${credhub_client}" --client-secret "${credhub_secret}"
+# check if an error occured
+if [ $? -ne 0 ]; then
+    >&2 echo "error on: credhub get -n '${PREFIX}/${KEY}' -q"
+    exit 3
+fi
+
+# credhub set
+PREFIX=${PREFIX%/} # strip trailing slash
+>&2 credhub set -n "${PREFIX}/${KEY}" -t json -v "$VALUE"
+
+# respond to concourse with a new version (even if same prefix/key and value)
+# echo "{ \"version\": { \"timestamp\": \"$(($(date +%s%N)/1000000 ))\" },  \"metadata\": [{\"PREFIX\": \"${PREFIX}\"}, {\"KEY\": \"${KEY}\"}] }"
+echo "{ \"version\": { \"credhub\": \"set $(date)\" },  \"metadata\": [{\"PREFIX\": \"${PREFIX}\"}, {\"KEY\": \"${KEY}\"}] }"
+

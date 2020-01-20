@@ -1,0 +1,58 @@
+resource_types:
+- name: concourse-credhub-store-resource-type
+  type: docker-image
+  source:
+    repository: dhoffi/concourse-credhub-store-resource
+    tag: latest
+
+resources:
+- name: concourse-credhub-store-resource
+  type: concourse-credhub-store-resource-type
+  source:
+    credhub_client: ((jumpbox-credhub-client-name))
+    credhub_secret: ((jumpbox-credhub-client-secret))
+    credhub_server: ((jumpbox-credhub-server))
+    credhub_ca_cert: ((jumpbox-credhub-ca-cert.certificate))
+    prefix: /concourse/main/jobstate/testConcourseCredhubStoreResourceDefault
+
+
+jobs:
+- name: testConcourseCredhubStoreResource-Set
+  serial: true
+  serial_groups: [sync]
+  plan:
+  - put: concourse-credhub-store-resource
+    resource: concourse-credhub-store-resource
+    params:
+      KEY: somekey
+      VALUE:
+        somekey: somevalue
+      # optional: overrides given prefix from resource
+      PREFIX: /concourse/main/jobstate/testConcourseCredhubStoreResource
+- name:  testConcourseCredhubStoreResource-Get
+  serial: true
+  serial_groups: [sync]
+  plan:
+  - get: concourse-credhub-store-resource
+    passed: [testConcourseCredhubStoreResource-Set]
+    trigger: true # trigger this if line passed: [..., ...] passed successfully
+    resource: concourse-credhub-store-resource
+    params:
+      KEY: somekey
+      # optional
+      SKIP_MISSING: false
+      # optional: overrides given prefix from resource
+      PREFIX: /concourse/main/jobstate/testConcourseCredhubStoreResource
+  - task: hello-credhub
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source: {repository: busybox}
+      run:
+        path: sh
+        args:
+        - -ec
+        - |
+          echo "read credhub values:"
+          cat concourse-credhub-store-resource/credhub-key-values.yml

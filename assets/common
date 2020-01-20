@@ -1,0 +1,23 @@
+#!/bin/bash
+
+errorMessage=''
+fakeDefault='XXXYYYXXX'
+
+set -euo pipefail
+err_report() {
+    echo "Error on line $1: $errorMessage"
+    set +x
+}
+trap 'err_report $LINENO' ERR
+finish() {
+    set +x
+}
+trap finish EXIT
+
+# check if something given on STDIN
+if [ -t 0 ]; then
+    # echo nopipe
+    >&2 echo "no data from STDIN of $0"
+    exit 1
+fi
+
