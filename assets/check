@@ -12,7 +12,7 @@ json=$(cat) # read json from stdin and assign to $json variable
 #     '[.version] | . + [{"timestamp": "$DATETIMEINMILLIS"}]' <(echo "${json}")
 
 # echo "[{ \"dummy\": \"$(($(date +%s%N)/1000000 ))\" }]"
-echo '[{ "dummy": "static" }]'
+echo "[{ \"dummy\": \"$(($(date +%s%N)/1000000 ))\" }]"
 
 # if you want a resource that will create a new version when a credential in credhub changes
 # then use https://github.com/cloudfoundry-community/credhub-resource

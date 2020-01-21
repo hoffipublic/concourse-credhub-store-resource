@@ -46,13 +46,14 @@ jobs:
   - task: hello-credhub
     config:
       platform: linux
-      image_resource:
-        type: docker-image
-        source: {repository: busybox}
+      image_resource: { type: docker-image, source: {repository: ubuntu} }
+      inputs:
+      - name: concourse-credhub-store-resource
       run:
         path: sh
         args:
         - -ec
         - |
+          ls -lsa
           echo "read credhub values:"
           cat concourse-credhub-store-resource/credhub-key-values.yml

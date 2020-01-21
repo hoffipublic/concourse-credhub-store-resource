@@ -101,13 +101,13 @@ elif [ $result -ne 0 ] && [ "${SKIP_MISSING}" = "true" ]; then
     : # no-op
 else
     # convert json to yaml
-    value="$(echo '${value}' | yq r -)"
+    value="$(echo ${value} | yq r -)"
     if [ $? -ne 0 ]; then
         >&2 echo "error on converting gotten value from json to yaml"
         exit 6
     fi
     # append gotten value to ouput dir file as json
-    echo "$KEY:\n$value" | sed 's/\\n/\n  /g' >> $getDir/credhub-key-values.yml
+    echo "$value" | sed 's/\\n/\n  /g' >> $getDir/credhub-key-values.yml
 fi
 
 # respond to concourse
