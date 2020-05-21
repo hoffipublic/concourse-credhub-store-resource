@@ -11,7 +11,7 @@ resources:
   source:
     credhub_client: ((jumpbox-credhub-client-name))
     credhub_secret: ((jumpbox-credhub-client-secret))
-    credhub_server: ((jumpbox-credhub-server))
+    credhub_server: ((jumpbox_credhub_server))
     credhub_ca_cert: ((jumpbox-credhub-ca-cert.certificate))
     prefix: /concourse/main/jobstate/testConcourseCredhubStoreResourceDefault
 
@@ -20,6 +20,9 @@ jobs:
 - name: testConcourseCredhubStoreResource-Set
   serial: true
   serial_groups: [sync]
+  build_log_retention:
+    builds: 10
+    minimum_succeeded_builds: 3
   plan:
   - put: concourse-credhub-store-resource
     resource: concourse-credhub-store-resource
@@ -32,6 +35,9 @@ jobs:
 - name:  testConcourseCredhubStoreResource-Get
   serial: true
   serial_groups: [sync]
+  build_log_retention:
+    builds: 10
+    minimum_succeeded_builds: 3
   plan:
   - get: concourse-credhub-store-resource
     passed: [testConcourseCredhubStoreResource-Set]
